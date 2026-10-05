@@ -1,0 +1,22 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "SALESTORM Flash-Sale API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/checkout/reserve": {
+      "post": {
+        "summary": "Reserve stock atomically",
+        "parameters": [
+          { "name": "X-Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "201": { "description": "Reserved" },
+          "409": { "description": "Out of stock" },
+          "429": { "description": "Rate limited" }
+        }
+      }
+    }
+  }
+}

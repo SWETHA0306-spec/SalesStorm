@@ -1,0 +1,416 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "SALESTORM Flash-Sale API Specification",
+    "description": "High-scale, low-latency REST API for inventory, carts, stock reservations, and payment webhooks during flash sales. Checkout reservation requests require an idempotency key. Webhook signatures are HMAC-SHA-256 values computed over the exact raw request body.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://api.salestorm.io/v1",
+      "description": "Production API Cluster"
+    }
+  ],
+  "paths": {
+    "/products/{id}/stock": {
+      "get": {
+        "operationId": "getProductStock",
+        "tags": ["Inventory"],
+        "summary": "Get Live Inventory Level",
+        "description": "Returns the currently available quantity. Availability is informational and can change before checkout; reservations are atomic.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "example": "prod_flash_101"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current stock count retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        }
+      }
+    },
+    "/cart/items": {
+      "post": {
+        "operationId": "addCartItem",
+        "tags": ["Cart"],
+        "summary": "Add Item to Transient Cart",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/X-Session-ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CartItemRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Item added to cart",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CartResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/checkout/reserve": {
+      "post": {
+        "operationId": "reserveCheckoutInventory",
+        "tags": ["Checkout"],
+        "summary": "Atomically Reserve Stock for Checkout",
+        "description": "Atomically reserves all requested items for a limited time, preventing overselling. Repeating a request with the same X-Idempotency-Key returns the original result. The key must be unique per logical checkout request.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/X-Idempotency-Key"
+          },
+          {
+            "$ref": "#/components/parameters/Authorization"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReservationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Stock successfully reserved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReservationSuccessResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/OutOfStock"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/payments/webhook": {
+      "post": {
+        "operationId": "receivePaymentWebhook",
+        "tags": ["Payments"],
+        "summary": "Asynchronous Payment Gateway Webhook",
+        "description": "Receives payment-provider events. Verify X-Signature-256 as `sha256=<hex>` using HMAC-SHA-256 over the exact raw request body and the configured shared secret, using a constant-time comparison, before processing. Duplicate transaction events must be handled idempotently.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/X-Signature-256"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentWebhookPayload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook processed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookAcknowledgement"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/InvalidSignature"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "X-Idempotency-Key": {
+        "name": "X-Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Unique UUID generated by frontend to prevent duplicate order submissions.",
+        "schema": {
+          "type": "string",
+          "format": "uuid",
+          "example": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+        }
+      },
+      "X-Session-ID": {
+        "name": "X-Session-ID",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "example": "sess_88329201"
+        }
+      },
+      "Authorization": {
+        "name": "Authorization",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "example": "Bearer eyJhbGciOiJIUzI1NiIsIn..."
+        }
+      },
+      "X-Signature-256": {
+        "name": "X-Signature-256",
+        "in": "header",
+        "required": true,
+        "description": "HMAC-SHA-256 signature of the exact raw request body, formatted as `sha256=<64 lowercase or uppercase hexadecimal characters>`.",
+        "schema": {
+          "type": "string",
+          "pattern": "^sha256=[A-Fa-f0-9]{64}$",
+          "example": "sha256=4b3f9a8c7d6e5f40123456789abcdef0123456789abcdef0123456789abcdef0"
+        }
+      }
+    },
+    "schemas": {
+      "StockResponse": {
+        "type": "object",
+        "required": ["product_id", "available_stock", "status"],
+        "properties": {
+          "product_id": { "type": "string", "example": "prod_flash_101" },
+          "available_stock": { "type": "integer", "example": 42 },
+          "status": { "type": "string", "enum": ["IN_STOCK", "LOW_STOCK", "OUT_OF_STOCK"], "example": "IN_STOCK" }
+        }
+      },
+      "CartItemRequest": {
+        "type": "object",
+        "required": ["product_id", "quantity"],
+        "properties": {
+          "product_id": { "type": "string", "example": "prod_flash_101" },
+          "quantity": { "type": "integer", "minimum": 1, "maximum": 5, "example": 1 }
+        }
+      },
+      "CartResponse": {
+        "type": "object",
+        "required": ["cart_id", "total_items", "items"],
+        "properties": {
+          "cart_id": { "type": "string", "example": "cart_9910" },
+          "total_items": { "type": "integer", "example": 1 },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CartItemRequest"
+            }
+          }
+        }
+      },
+      "ReservationRequest": {
+        "type": "object",
+        "required": ["user_id", "items"],
+        "properties": {
+          "user_id": { "type": "string", "example": "usr_5501" },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "required": ["product_id", "quantity"],
+              "properties": {
+                "product_id": { "type": "string", "example": "prod_flash_101" },
+                "quantity": { "type": "integer", "minimum": 1, "maximum": 5, "example": 1 }
+              }
+            }
+          }
+        }
+      },
+      "ReservationSuccessResponse": {
+        "type": "object",
+        "required": ["reservation_id", "order_id", "status", "expires_at", "payment_url"],
+        "properties": {
+          "reservation_id": { "type": "string", "example": "res_88209" },
+          "order_id": { "type": "string", "example": "ord_10092" },
+          "status": { "type": "string", "example": "RESERVED" },
+          "expires_at": { "type": "string", "format": "date-time", "example": "2026-10-05T15:00:00Z" },
+          "payment_url": { "type": "string", "example": "https://pay.salestorm.io/checkout/res_88209" }
+        }
+      },
+      "PaymentWebhookPayload": {
+        "type": "object",
+        "required": ["transaction_id", "reservation_id", "amount", "currency", "status"],
+        "properties": {
+          "transaction_id": { "type": "string", "example": "txn_330911" },
+          "reservation_id": { "type": "string", "example": "res_88209" },
+          "amount": { "type": "number", "example": 299.99 },
+          "currency": { "type": "string", "example": "USD" },
+          "status": { "type": "string", "enum": ["SUCCESS", "FAILED", "EXPIRED"], "example": "SUCCESS" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error_code", "message", "timestamp"],
+        "properties": {
+          "error_code": { "type": "string", "example": "TOO_MANY_REQUESTS" },
+          "message": { "type": "string", "example": "Rate limit exceeded. Please try again in 1 second." },
+          "details": {
+            "type": "array",
+            "description": "Optional field-level or domain-specific error details.",
+            "items": { "$ref": "#/components/schemas/ErrorDetail" }
+          },
+          "request_id": { "type": "string", "description": "Identifier for correlating this response with server logs.", "example": "req_01J9M3K8P5" },
+          "timestamp": { "type": "string", "format": "date-time", "example": "2026-10-05T14:50:52Z" }
+        }
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "required": ["field", "issue"],
+        "properties": {
+          "field": { "type": "string", "example": "items[0].quantity" },
+          "issue": { "type": "string", "example": "must be greater than zero" }
+        }
+      },
+      "WebhookAcknowledgement": {
+        "type": "object",
+        "required": ["status", "event_id"],
+        "properties": {
+          "status": { "type": "string", "enum": ["PROCESSED", "DUPLICATE"], "example": "PROCESSED" },
+          "event_id": { "type": "string", "example": "evt_88329201" }
+        }
+      }
+    },
+    "responses": {
+      "NotFound": {
+        "description": "Requested resource was not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "BadRequest": {
+        "description": "The request is malformed or fails validation.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "example": {
+              "error_code": "VALIDATION_ERROR",
+              "message": "The request contains invalid fields.",
+              "details": [{ "field": "quantity", "issue": "must be greater than zero" }],
+              "request_id": "req_01J9M3K8P5",
+              "timestamp": "2026-10-05T14:50:52Z"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Authentication is missing or invalid.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      },
+      "InvalidSignature": {
+        "description": "The webhook signature is missing or does not match the raw request body.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "example": {
+              "error_code": "INVALID_SIGNATURE",
+              "message": "Webhook signature validation failed.",
+              "timestamp": "2026-10-05T14:50:52Z"
+            }
+          }
+        }
+      },
+      "OutOfStock": {
+        "description": "Conflict: one or more requested quantities are unavailable. No items were reserved.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "example": {
+              "error_code": "OUT_OF_STOCK",
+              "message": "Requested item quantity is no longer available.",
+              "details": [{ "field": "items[0].product_id", "issue": "insufficient stock" }],
+              "timestamp": "2026-10-05T14:50:00Z"
+            }
+          }
+        }
+      },
+      "TooManyRequests": {
+        "description": "Rate limit exceeded. Retry after the indicated delay when the Retry-After header is present.",
+        "headers": {
+          "Retry-After": {
+            "description": "Suggested delay in seconds before retrying.",
+            "schema": { "type": "integer", "minimum": 1, "example": 1 }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-10-05T15:07:24Z",
+  "level": "INFO",
+  "service": "checkout-service",
+  "trace_id": "4f3ae9812b1029c",
+  "span_id": "92ab1308a12",
+  "user_id": "usr_991203",
+  "event": "STOCK_RESERVED",
+  "details": {
+    "product_id": "prod_flash_101",
+    "quantity": 1,
+    "latency_ms": 4.2
+  }
+}
